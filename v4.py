@@ -4,7 +4,7 @@ from docx import Document
 from io import BytesIO
 import zipfile
 import os
-import time
+import time # Used for simulated processing time/clearer status updates
 
 # --- Generator Functions (Tough Problems - DEFINED HERE) ---
 
@@ -17,8 +17,6 @@ def generate_arithmetic_tough():
         num1 = random.randint(100000, 999999999)
         num2 = random.randint(10000, 9999999)
         num3 = random.randint(100, 5000)
-        if operator == '-' and num1 < num2:
-            num1, num2 = num2, num1
         pattern = random.choice([
             f"Berechne: {num1} {operator} {num2} + {num3}",
             f"Berechne: {num1} + {num2} - {num3}"
@@ -44,15 +42,18 @@ GENERATORS.append(generate_rounding_tough)
 
 # --- Tough Order of Operations ---
 def generate_order_of_operations_tough():
+    """Zweifache Klammerung und Potenzierung."""
     a = random.randint(2, 5)
     b = random.randint(5, 15)
     c = random.randint(2, 5)
     d = random.randint(10, 30)
-    e = random.randint(1, 3) 
+    e = random.randint(1, 3) # Exponent
+    
     pattern = random.choice([
         f"Löse: ({b} - {c} + {d}) x {a}",
         f"Löse: {d} + [{b} x ({c} + {a})]",
-        f"Löse: {a}**{e} + {b} x ({d} - {c})"
+        # FIX: Removed LaTeX and used standard Python exponent notation (**) for clarity
+        f"Löse: {a}**{e} + {b} x ({d} - {c})" 
     ])
     return pattern
 GENERATORS.append(generate_order_of_operations_tough)
@@ -61,41 +62,37 @@ GENERATORS.append(generate_order_of_operations_tough)
 def generate_units_conversion_tough():
     unit_choice = random.choice(['Länge', 'Zeit', 'Masse'])
     if unit_choice == 'Länge':
-        if random.choice([True, False]):
-            value = random.randint(100, 5000)
-            return f"Wandle um: {value} Zentimeter (cm) in Meter (m)."
-        else:
-            value = round(random.uniform(1.0, 10.0), 2)
-            return f"Wandle um: {value} Kilometer (km) in Meter (m)."
+        km = random.randint(5, 50)
+        m = random.randint(1, 999)
+        cm = random.randint(1, 99)
+        return f"Wandle um: {km} km, {m} m und {cm} cm in Gesamtmetern (m)."
     elif unit_choice == 'Zeit':
-        if random.choice([True, False]):
-            h = random.randint(4, 10)
-            m = random.randint(1, 59)
-            return f"Wandle um: {h} Stunden (h) und {m} Minuten (min) in Gesamtminuten."
-        else:
-            m = random.randint(70, 300)
-            return f"Wandle um: {m} Minuten (min) in Stunden (h) und Minuten (min)."
+        h = random.randint(4, 10)
+        m = random.randint(1, 59)
+        s = random.randint(1, 59)
+        return f"Wandle um: {h} h, {m} min und {s} s in Gesamtsekunden (s)."
     else:
-        if random.choice([True, False]):
-            value = random.randint(500, 9000)
-            return f"Wandle um: {value} Gramm (g) in Kilogramm (kg)."
-        else:
-            value = round(random.uniform(0.1, 3.0), 2)
-            return f"Wandle um: {value} Tonnen (t) in Kilogramm (kg)."
+        t = random.randint(1, 5)
+        kg = random.randint(10, 999)
+        g = random.randint(1, 999)
+        return f"Wandle um: {t} t, {kg} kg und {g} g in Gesamtgramm (g)."
 GENERATORS.append(generate_units_conversion_tough)
 
 # --- Tough Geometry/Area ---
 def generate_geometry_perimeter_area_tough():
+    """Rückwärtsaufgaben oder Aufgaben mit zusammengesetzten Figuren."""
     choice = random.choice(['Fläche_Rück', 'Umfang_Rück', 'Zusammengesetzt'])
+    
     if choice == 'Fläche_Rück':
         area = random.randint(100, 500)
         width = random.randint(5, 20)
+        # FIX: Replaced LaTeX $\text{cm}^2$ with Unicode cm²
         return f"Die Fläche eines Rechtecks beträgt {area} cm². Die Breite ist {width} cm. Berechne die Länge und den Umfang."
     elif choice == 'Umfang_Rück':
         perimeter = random.randint(80, 200)
         length = random.randint(20, 50)
         return f"Der Umfang eines Rechtecks ist {perimeter} m. Die Länge ist {length} m. Berechne die Breite und die Fläche."
-    else:
+    else: # Zusammengesetzt
         l1 = random.randint(10, 20)
         w1 = random.randint(5, 10)
         l2 = random.randint(5, 10)
@@ -121,10 +118,9 @@ def generate_word_problem_tough():
     return f"Ein Händler kauft {item_count} Kisten Äpfel zu je {price}€ pro Kiste. Jede Kiste wiegt {weight_g} g. Wie viel bezahlt er insgesamt und wie schwer sind alle Kisten zusammen in Kilogramm?"
 GENERATORS.append(generate_word_problem_tough)
 
-# --- Document and Helper Functions ---
+# --- Document and Helper Functions (Unchanged Logic) ---
 
 def create_single_problem_set(num_problems=50):
-    """Generiert eine Liste von 50 Aufgaben mit hoher Varianz."""
     problems = []
     min_per_category = 7 
     required_problems = []
@@ -146,7 +142,6 @@ def create_single_problem_set(num_problems=50):
     return problems
 
 def create_word_document(problems, set_number):
-    """Erstellt ein Word-Dokument (im Speicher) und gibt es als Bytes zurück."""
     document = Document()
     document.add_heading(f'Schwere Mathematikaufgaben Gymnasium Kl. 5 (Sachsen-Anhalt) - Set {set_number}', 0)
     document.add_paragraph("Dies sind Übungen mit erhöhtem Schwierigkeitsgrad.")
@@ -173,9 +168,7 @@ def login_form():
     with st.sidebar.form("login_form"):
         username = st.text_input("Benutzername")
         password = st.text_input("Passwort", type="password")
-        
-        # NEU: Der Login-Button ist Primary
-        submitted = st.form_submit_button("Login", type="primary")
+        submitted = st.form_submit_button("Login")
         
         if submitted:
             if username == STATIC_USER and password == STATIC_PASS:
@@ -207,8 +200,7 @@ def main_app():
     
     st.markdown("---")
 
-    # NEU: Der Generierungs-Button ist Primary
-    if st.button(f"Starte Generierung von {num_sets} Sätzen und erstelle ZIP-Datei", type="primary"):
+    if st.button(f"Starte Generierung von {num_sets} Sätzen und erstelle ZIP-Datei"):
         
         # 1. ZIP-Archiv im Speicher vorbereiten
         zip_buffer = BytesIO()
@@ -243,7 +235,7 @@ def main_app():
         st.markdown("---")
         st.markdown(f"**ℹ️ Hinweis:** Die Dateien wären lokal unter dem Pfad: `{download_location}` gespeichert worden.")
         
-        # 2. Streamlit Download Button für das ZIP-Archiv (Typ ist standardmäßig 'secondary' oder kann weggelassen werden)
+        # 2. Streamlit Download Button für das ZIP-Archiv
         st.download_button(
             label="Alle Sätze als ZIP-Datei herunterladen",
             data=zip_buffer,
