@@ -3,3 +3,4 @@ python-docx
 groq
 pypdf2
 python-dotenv
+google-generativeai
