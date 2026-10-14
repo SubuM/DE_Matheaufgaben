@@ -10,8 +10,8 @@ from io import BytesIO
 import zipfile
 
 # =============================================================================
-#  v15 -- Production-Grade AI Math Generator (Groq Free Tier Optimized)
-#  Multi-Tier Rate-Limit Protection, Live Endpoint Verification & Safe Parsing
+#  v15 -- Production-Grade AI Math Generator (Groq Free Tier)
+#  Multi-Format JSON Parsing & Strict Text-Model Filtering
 # =============================================================================
 
 SYLLABUS_TOPICS = [
@@ -32,30 +32,46 @@ SYLLABUS_TOPICS = [
     "Lineare Funktionen (Steigung, Nullstelle)", "Wahrscheinlichkeit (Urnenmodell, Baumdiagramm)"
 ]
 
-# Primary models ordered by reasoning performance and active deployment status
-PRIMARY_FALLBACK_CHAIN = [
-    "openai/gpt-oss-120b",  # Flagship open-weight reasoning model
-    "openai/gpt-oss-20b",   # High-speed fallback
-    "qwen/qwen3.8-27b"      # Alternative preview route
+PREFERRED_MODELS = [
+    "llama-3.3-70b-versatile",
+    "llama-3.1-8b-instant",
+    "llama3-70b-8192",
+    "llama3-8b-8192"
 ]
 
+# Blacklist patterns to exclude speech, audio, guard, and unsupported vision models
+EXCLUDED_MODEL_PATTERNS = ["whisper", "guard", "vision", "safeguard", "orpheus", "canopylabs", "tts", "stt"]
+
+def sanitize_xml_string(text: str) -> str:
+    """Removes all characters invalid according to W3C XML 1.0 standard."""
+    if not text:
+        return ""
+    return re.sub(
+        r'[^\x09\x0A\x0D\x20-\xD7FF\xE000-\xFFFD\U00010000-\U0010FFFF]',
+        '',
+        text
+    )
+
 @st.cache_data(ttl=1800)
-def get_verified_fallback_chain(api_key):
-    """
-    Interrogates the Groq API for currently active models and filters 
-    the fallback chain against live endpoints.
-    """
+def get_live_fallback_chain(api_key):
+    """Interrogates Groq API to verify currently active, valid text models."""
     try:
         client = Groq(api_key=api_key)
-        live_models = {m.id for m in client.models.list().data}
-        valid_chain = [m for m in PRIMARY_FALLBACK_CHAIN if m in live_models]
+        models_page = client.models.list()
+        active_api_models = {m.id for m in models_page.data}
         
-        # If primary choices are missing, use available text models
+        valid_chain = [m for m in PREFERRED_MODELS if m in active_api_models]
+        
         if not valid_chain:
-            valid_chain = sorted([m for m in live_models if "whisper" not in m and "guard" not in m])
-        return valid_chain
+            # Fall back to active text models while filtering out audio/speech/guard models
+            valid_chain = sorted([
+                m for m in active_api_models 
+                if not any(pattern in m.lower() for pattern in EXCLUDED_MODEL_PATTERNS)
+            ])
+            
+        return valid_chain if valid_chain else PREFERRED_MODELS
     except Exception:
-        return PRIMARY_FALLBACK_CHAIN
+        return PREFERRED_MODELS
 
 def request_groq_batch(client, model_id, topics_sample, expected_count):
     topics_list_str = "\n".join([f"- {topic}" for topic in topics_sample])
@@ -93,9 +109,25 @@ def request_groq_batch(client, model_id, topics_sample, expected_count):
     
     content = response.choices[0].message.content
     data = json.loads(content)
-    problems = data.get("problems", [])
     
-    return [str(p).strip() for p in problems if len(str(p).strip()) > 15]
+    # Robustly handle both JSON Dicts {"problems": [...]} and JSON Lists [{"problems": [...]}]
+    problems = []
+    if isinstance(data, dict):
+        problems = data.get("problems", [])
+    elif isinstance(data, list):
+        for item in data:
+            if isinstance(item, dict) and "problems" in item:
+                problems.extend(item["problems"])
+            elif isinstance(item, str):
+                problems.append(item)
+    
+    cleaned_problems = []
+    for p in problems:
+        s = str(p).strip()
+        if len(s) > 15:
+            cleaned_problems.append(sanitize_xml_string(s))
+            
+    return cleaned_problems
 
 def create_word_document(problems, set_number):
     document = Document()
@@ -104,9 +136,9 @@ def create_word_document(problems, set_number):
     document.add_paragraph(f"Erstellt am {datetime.now().strftime('%d.%m.%Y %H:%M')}")
     
     for i, problem in enumerate(problems[:50], 1):
-        # Precise prefix stripping that prevents removing leading math figures
-        clean_prob = re.sub(r'^\s*(?:\d+[\.\)]|Aufgabe\s*\d*[:\.]?)\s*', '', problem, flags=re.IGNORECASE).strip()
-        document.add_paragraph(f"{i}. {clean_prob}")
+        clean_prob = re.sub(r'^\s*(?:\d+[\.\)]|Aufgabe\s*\d+[:\.]?)\s*', '', problem, flags=re.IGNORECASE).strip()
+        safe_prob = sanitize_xml_string(clean_prob)
+        document.add_paragraph(f"{i}. {safe_prob}")
 
     bio = BytesIO()
     document.save(bio)
@@ -118,7 +150,7 @@ def login_form():
         STATIC_USER = st.secrets["auth"]["username"]
         STATIC_PASS = st.secrets["auth"]["password"]
     except KeyError:
-        st.error("Konfigurationsfehler: '.streamlit/secrets.toml' prüfen.")
+        st.error("Konfigurationsfehler: Bitte stellen Sie sicher, dass '.streamlit/secrets.toml' existiert.")
         return
 
     st.sidebar.header("Login erforderlich")
@@ -144,10 +176,10 @@ def main_app():
         return
 
     client = Groq(api_key=api_key)
-    fallback_chain = get_verified_fallback_chain(api_key)
+    fallback_chain = get_live_fallback_chain(api_key)
 
     st.title("🧠 Zero-Cost Mathe-Generator (Production Ready)")
-    st.markdown("Generiert 50 Aufgaben pro Set. Dynamic Fallback aktiv.")
+    st.markdown(f"**Aktivierte Modell-Kette:** `{ ' -> '.join(fallback_chain) }`")
     st.markdown("---")
 
     num_sets = st.number_input("Anzahl der benoetigten Aufgabensaetze:", min_value=1, max_value=20, value=3)
@@ -157,6 +189,8 @@ def main_app():
         has_fatal_error = False
 
         with st.status("Verbinde mit Groq Infrastructure...", expanded=True) as status:
+            status.write(f"ℹ️ Verifizierte aktive Modelle: `{fallback_chain}`")
+            
             with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
                 
                 for set_idx in range(1, int(num_sets) + 1):
@@ -165,7 +199,7 @@ def main_app():
                     all_problems_for_set = []
                     batch = 1
                     max_batches = 15
-                    active_model_idx = 0 # Reset to top reasoning model for each new set
+                    active_model_idx = 0 
                     
                     while len(all_problems_for_set) < 50 and batch <= max_batches:
                         needed = 50 - len(all_problems_for_set)
@@ -187,28 +221,28 @@ def main_app():
                                     batch_success = True
                                     break
                                 
-                            except (RateLimitError, BadRequestError, NotFoundError) as e:
-                                status.warning(f"⚠️ `{target_model}` nicht verfügbar oder Limit erreicht. Wechsele zum Fallback...")
-                                time.sleep(2)
+                            except (RateLimitError, BadRequestError, NotFoundError) as err:
+                                status.warning(f"⚠️ Modell `{target_model}` meldet Limit oder ist ungeeignet ({type(err).__name__}). Wechsele zum Fallback...")
+                                time.sleep(4)
                                 continue
                             except APIError as e:
-                                status.error(f"❌ Schwerer API-Fehler ({target_model}): {str(e)}")
+                                status.error(f"❌ API-Fehler ({target_model}): {str(e)}")
                                 has_fatal_error = True
                                 break
                             except Exception as e:
-                                status.error(f"❌ Unerwarteter Fehler: {str(e)}")
+                                status.error(f"❌ Unerwarteter Fehler ({target_model}): {str(e)}")
                                 has_fatal_error = True
                                 break
                         
                         if has_fatal_error: break
                         
                         if not batch_success:
-                            status.error("❌ Alle verfügbaren Fallback-Modelle sind ausgelastet. Bitte später versuchen.")
+                            status.error("❌ Alle verfügbaren Fallback-Modelle sind momentan ausgelastet.")
                             has_fatal_error = True
                             break
                         
                         batch += 1
-                        time.sleep(3) # Safe delay between micro-batches
+                        time.sleep(3)
                     
                     if not has_fatal_error:
                         docx_bytes = create_word_document(all_problems_for_set, set_idx)
